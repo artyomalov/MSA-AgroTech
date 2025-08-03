@@ -1,0 +1,123 @@
+@startuml Animal Monitoring System - Container Diagram
+
+skinparam dpi 150
+skinparam maxWidth 10000
+skinparam maxHeight 5000
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Component.puml
+
+title Система мониторинга животных - Диаграмма Контейнеров
+
+left to right direction
+
+Person(operator, "Оператор")
+
+
+System(external_systems, "Внешние системы")
+
+Container(kafka, "Брокер сообщений", "Apache Kafka")
+
+' resources monitoring
+System_Boundary(resources_monitoring, "Система мониторинга реурсов", "Осуществляет контроль запасов фуража и состояния водяных фильтров") {
+    Container(resources_monitoring_server, "Локальный сервер системы", "Kafka/gRPC", "Сохранение данных мониторинга в локальную базу./nПубликация оповещений оператора./nПредоставление данных по запросу системы мониторинга")
+    ContainerDb(resources_monitoring_database, "Хранение локальных данных системы", "Postgresql")
+
+    Container(foorage_monitoring, "Отслеживание количества фуража", "Python/gRPC")
+    Container(water_filters_monitoring, "Отслеживание состояния водяных фильтров", "Python/gRPC")
+
+    Rel(foorage_monitoring, resources_monitoring_server, "Сериализованные данные мониторинга", "gRPC")
+    Rel(water_filters_monitoring, resources_monitoring_server, "Сериализованные данные мониторинга", "gRPC")
+    Rel(resources_monitoring_server, resources_monitoring_database, "Сериализованные данные мониторинга")
+    Rel(resources_monitoring_database, resources_monitoring_server, "Сериализованные данные мониторинга")
+
+}
+
+' hardware control
+System_Boundary(equipment_control, "Система управления оборудованием", "Контролирует поилки и кормушки") {
+    Container(equipment_control_server, "Локальный сервер системы", "Kafka/gRPC", "Сохранение данных мониторинга в локальную базу./nПубликация оповещений оператора./nПредоставление данных по запросу системы мониторинга")
+    ContainerDb(equipment_control_database, "Хранение локальных данных системы", "Postgresql")
+
+    Container(feeders_control, "Система контроля кормушек", "ngRPC")
+    Container(water_bowls_control, "Water bowls control system ", "gRPC")
+
+    Rel(feeders_control, equipment_control_server, "Сериализованные данные мониторинга")
+    Rel(water_bowls_control, equipment_control_server, "Сериализованные данные мониторинга")
+    Rel(equipment_control_server, equipment_control_database, "Сериализованные данные мониторинга")
+    Rel(equipment_control_database, equipment_control_server, "Сериализованные данные мониторинга")
+}
+
+' animals monitoring
+System_Boundary(animals_behaviour_monitoring, "Система мониторинга поведения животных", "Python", "Осуществляет контроль состояния и поведения животных, выполняет подсчёт") {
+    Container(animals_behaviour_monitoring_server, "Локальный сервер системы", "Python, Kafka, gRPC", "Сохранение данных мониторинга в локальную базу./nПубликация оповещений оператора./nПредоставление данных по запросу системы мониторинга")
+    ContainerDb(animals_behaviour_monitoring_database, "Хранение локальных данных системы", "Postgresql")
+
+    Container(animals_deviant_behaviour_control, "Система отслеживания беспокойного поведения животных", "Python")
+    Container(signs_of_piglets_being_crushed_detection, "Система обнарожения задавливания поросят", "Python")
+    Container(animal_exterior_audit, "Система оценки состояния животных", "Python")
+    Container(count_animals_system, "Система подсчёта поголовья", "Python")
+
+    Rel(animals_deviant_behaviour_control, animals_behaviour_monitoring_server, "Сериализованные данные мониторинга")
+    Rel(signs_of_piglets_being_crushed_detection, animals_behaviour_monitoring_server, "Сериализованные данные мониторинга")
+    Rel(animal_exterior_audit, animals_behaviour_monitoring_server, "Сериализованные данные мониторинга")
+    Rel(count_animals_system, animals_behaviour_monitoring_server, "Сериализованные данные мониторинга")
+    Rel(animals_behaviour_monitoring_server, animals_behaviour_monitoring_database, "Сериализованные данные мониторинга")
+    Rel(animals_behaviour_monitoring_database, animals_behaviour_monitoring_server, "Сериализованные данные мониторинга")
+}
+
+System_Boundary(central_server, "Центральный сервер"){
+    ' analytics system container level
+    System_Boundary(analytics, "Аналитическая система") {
+        Container(analytics_system_server, "Сервер аналитической системы", "Python", "Получает и анализирует метрики от систем мониторинга")
+        Container(celery, "Приложение celery для генерации отчёта", "Celery",)
+        Container(analytics_system_database, "База данных", "Postgresql", "Хранит сырые и проанализированные данные системы мониторинга")
+        Container(analytics_redis, "Redis", "Система кеширования/брокер сообщений")
+
+        analytics_redis --> celery : "Сериализованная задача/ID задачи"
+        analytics_redis --> analytics_system_server : "Сериализованная задача/ID задачи"
+        analytics_system_server --> analytics_system_database : "Данные мониторинга", "Redis"
+        analytics_system_database --> celery : "Данные мониторинга"
+    }
+
+    ' user system
+    System_Boundary(user, "Данные пользователя", "Python/SQLALchemy") {
+        Container(auth_server, "Данные пользователя", "Python/SQLALchemy")
+        ContainerDb(auth_database, "База данных системы авторизации", "Postgresql")
+
+        auth_server <--> auth_database : "Данные пользователей"
+    }
+
+    ' central server container level
+    System_Boundary(central_server_main_app, "Центральный сервер") {
+        Container(central_server_application, "Основное приложение центрального сервера", "FastAPI, Pydantic, SQLAlchemy, gRPC, Kafka", "Предоставляет API для пользовательского интерфейса, запрашивает аналитику, осуществляет управление поилками и кормушками, предоставляет API для внешних ресурсов, предоставляет систему авторизации")
+        ContainerDb(central_server_redis, "Redis", "Система кеширования")
+
+        central_server_redis <--> central_server_application : "Кэш"
+        central_server_application <--> auth_server : "Данные пользователей"
+    }
+
+
+}
+
+' UI apps
+Container(user_interface, "Пользовательский интерфейс", "React")
+Container(mobile_app, "Мобильное приложение", "React native")
+
+' Global relations
+analytics_system_server <--> central_server_application : "Получение аналитики/Добавление метрик", "gRPC"
+central_server_application <--> equipment_control_server : "Управление кормушками и поилками", "gRPC"
+
+resources_monitoring_server --> kafka :  "Публикует события связанные с опустошением кормушек", "Kafka protocol"
+equipment_control_server --> kafka : "Сериализованные данные мониторинга"
+animals_behaviour_monitoring_server --> kafka : "Публикует события связанные с поведением животных", "Kafka protocol"
+
+kafka --> central_server_application : "Поток оповещений о нештатных ситуациях", "Kafka protocol"
+kafka --> analytics_system_server : "Поток событий", "Kafka protocol"
+
+central_server_application <--> user_interface : "Cериализованные данные", "RestAPI/JSON"
+central_server_application <--> mobile_app : "Cериализованные данные", "RestAPI/JSON"
+central_server_application <--> external_systems : "Получение аналитики", "Rest/JSON"
+
+user_interface --> operator : "Данные системы"
+mobile_app --> operator : "Данные системы"
+@enduml
