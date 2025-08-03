@@ -1,0 +1,223 @@
+@startuml Animal Monitoring System - Component Diagram
+skinparam dpi 150
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Система мониторинга животных - Диаграмма Компонентов
+
+top to bottom direction
+
+Person(operator, "Оператор")
+
+
+System(external_systems, "Внешние системы")
+
+System(kafka, "Брокер сообщений", "Apache Kafka")
+
+
+' UI apps
+System(user_interface, "Пользовательский интерфейс", "React")
+System(mobile_app, "Мобильное приложение", "React native")
+
+' central server container level
+System_Boundary(central_server, "Центральный сервер") {
+    System_Boundary(user, "Данные пользователя", "Python/SQLALchemy") {
+        SystemDb(auth_database, "База данных системы авторизации", "Postgresql")
+
+        Container_Boundary(auth_server, "Данные пользователя", "Python/SQLALchemy") {
+            Container(user_controller, "Контроллер: система авторизации", "Python, gRPC")
+            Container(user_services, "Сервисы: система авторизации", "Python")
+            Container(user_repository, "Репозиторий: система авторизации", "Python/SQLAlchemy")
+        }
+
+        user_repository <--> auth_database : "Данные пользователей"
+        user_services <--> user_repository : "Данные пользователей"
+        user_controller <--> user_services : "Данные пользователей"
+    }
+
+    System_Boundary(analytics, "Аналитическая система") {
+        System(celery, "Приложение celery для генерации отчёта", "Celery",)
+        System(analytics_system_database, "База данных", "Postgresql")
+        System(analytics_redis, "Redis", "Система кеширования/брокер сообщений")
+        Container_Boundary(analytics_system_server, "Сервер аналитической системы", "Python", "Получает и анализирует метрики от систем мониторинга") {
+            Component(analytics_system_grpc_controller, "Контроллер: аналитическая система(gRPC)", "Python/gRPC", "Получение запросов/возврат данных аналитики")
+            Component(analytics_system_kafka_controller, "Контроллер: аналитическая система(Kafka)", "Python/Kafka protocol", "Получение данных мониторинга систем")
+            Component(analytics_system_services, "Сервис: аналитическая система", "Python", "Генерация аналитических отчётов/Передача, получения данных из БД")
+            Component(analytics_system_repository, "Репозиторий: аналитическая система", "Python/SQLAlchemy", "Cохранение/получение данных из базы")
+        }
+
+        analytics_system_grpc_controller <--> analytics_redis : "Сериализованные данные аналитики"
+        analytics_redis <--> celery : "Сериализованная задача/ID задачи"
+        analytics_redis <--> analytics_system_server : "Сериализованная задача/ID задачи"
+
+        analytics_system_kafka_controller --> analytics_system_services : "Данные мониторинга"
+        analytics_system_grpc_controller <--> analytics_system_services : "Запрос аналитики/сериализованные данные аналитики/ID celery задачи"
+        analytics_system_services --> analytics_system_repository : "Данные мониторинга"
+        analytics_system_services <--> celery : "Сериализованная задача/ID задачи"
+        celery <--> analytics_system_repository : "Запрос данных мониторинга/Данные мониторинга"
+        analytics_system_repository <--> analytics_system_database : "Запрос данных мониторинга/Данные мониторинга"
+    }
+
+    ' central server container level
+    System_Boundary(central_server_main_app, "Центральный сервер") {
+        SystemDb(central_server_redis, "Redis", "Система кеширования")
+        Container_Boundary(central_server_application, "Основное приложение центрального сервера"){
+            ' user
+            Component(log_in_controller, "Контроллер: авторизация", "FastAPI", "Авторизация пользователя")
+            Component(registration_controller, "Контроллер: регистрация", "FastAPI", "Регистрация пользователя")
+            Component(auth_middleware, "Промежуточное ПО: аутентификация и авторизация пользователя", "bcrypt", "Промежуточное ПО(middleware), позволяющее проводить аутентификацию и авторизацию пользователя на основе JWT токена")
+
+            ' metrics
+            Component(add_metrics_controller, "Контроллер: добавление метрик", "FastAPI", "Добавление метрик с помощью POST запроса")
+            Component(get_metrics_controller, "Контроллер: получение списка  доступных метрик", "FastAPI", "Получение метрик с помощью GET запроса")
+            Component(external_systems_controller, "Контроллер: обработка запросов внешних систем", "FastAPI", "Возвращение данных аналитики внешним системам")
+            Component(get_metrics_data_controller, "Контроллер: получение метрик", "FastAPI", "Получение метрик с помощью GET запроса")
+            Component(analytics_services_component, "Компонент: Сервисы аналитики", "Python")
+            Component(analytics_system_main_server_connector, "Компонент: коннектор аналитической системы", "Python")
+
+            ' resources monitoring
+            Component(resources_monitoring_consumer, "Потребитель событий: мониторинг состояния фильтров и кормушек", "Python/Kafka", "Получение потока данных из очередей Kafka")
+            Component(resources_monitoring_services, "Компонент: мониторинг состояния фильтров и кормушек", "Python", "Работа с данными, передача данных в репозиторий для дальнейшего сохранения в БД")
+
+            ' equipment control
+            Component(equipment_control_controller, "Контроллер: управление оборудованием", "Python", "Управление оборудованием")
+            Component(equipment_control_consumer, "Потребитель событий: управление оборудованием", "Python/Kafka", "Получение потока данных из очередей Kafka")
+            Component(equipment_control_connector, "Коннектор: управление оборудованием", "gRPC", "Отправка команд оборудованию")
+            Component(equipment_control_services, "Компонент: управление оборудованием", "Python", "Работа с данными, передача данных в репозиторий для дальнейшего сохранения в БД")
+
+            ' animals behaviour monitoring
+            Component(animals_behaviour_monitoring_consumer, "Потребитель событий: мониторинг поведения животных", "Python/Kafka", "Получение потока данных из очередей Kafka")
+            Component(animals_behaviour_monitoring_services, "Компонент: мониторинг поведения животных", "Python", "Работа с данными, передача данных в репозиторий для дальнейшего сохранения в БД")
+
+            Component(websockets_ui_connector, "Python(FastAPI)", "Коннектор для отправки данных клиенту посредством веб-сокетов")
+
+            ' user
+            log_in_controller <--> user_controller : "Сериализованные данные"
+            registration_controller <--> user_controller : "Сериализованные данные"
+            auth_middleware <--> user_controller : "Авторизация пользователя"
+            ' metrics
+            add_metrics_controller <--> analytics_services_component : "Данные пользовательских метрик для сохранения в базе"
+
+            external_systems_controller <--> analytics_services_component : "HTTP запрос/Сериализованные данные"
+            get_metrics_controller <--> analytics_services_component : "Список доступных метрик"
+            get_metrics_data_controller <--> analytics_services_component : "Запрос на получение набора метрик"
+
+            auth_middleware <--> add_metrics_controller : "HTTP запрос/Сериализованные данные"
+            auth_middleware <--> get_metrics_controller : "HTTP запрос/Сериализованные данные"
+            auth_middleware <--> get_metrics_data_controller : "HTTP запрос/Сериализованные данные"
+            auth_middleware <--> external_systems_controller : "HTTP запрос/Сериализованные данные"
+            auth_middleware <--> equipment_control_controller : "HTTP запрос/Сериализованные данные"
+
+            ' resources monitoringr
+            resources_monitoring_consumer --> resources_monitoring_services : "Сериализованные данные"
+            resources_monitoring_services --> websockets_ui_connector : "Оповещение о внештатной ситуации"
+
+            ' equipment control
+            equipment_control_consumer --> equipment_control_services : "Сериализованные данные"
+            equipment_control_services --> websockets_ui_connector : "Оповещение о внештатной ситуации"
+            equipment_control_services <--> equipment_control_connector: "Команды системы управления оборудованием/ответы систем"
+            equipment_control_controller <--> equipment_control_services: "Команды системы управления оборудованием/ответы систем"
+            ' animals behaviour monitoring
+            animals_behaviour_monitoring_consumer --> animals_behaviour_monitoring_services : "Сериализованные данные"
+            animals_behaviour_monitoring_services --> websockets_ui_connector : "Оповещение о внештатной ситуации"
+
+
+        }
+        analytics_services_component <--> analytics_system_main_server_connector : "Запрос на получение метрик/данных метрик, данные аналитики"
+        analytics_system_main_server_connector <--> analytics_system_grpc_controller : "Запрос на получение метрик/данных метрик, данные аналитики"
+
+        central_server_redis <--> log_in_controller : "Кэш"
+        central_server_redis <--> auth_middleware : "Кэш"
+        central_server_redis <--> registration_controller : "Кэш"
+        central_server_redis <--> external_systems_controller : "Кэш"
+    }
+}
+
+' resources monitoring
+System_Boundary(resources_monitoring, "Система мониторинга реурсов", "Осуществляет контроль запасов фуража и состояния водяных фильтров") {
+    Container(foorage_monitoring, "Отслеживание количества фуража", "Python/gRPC")
+    Container(water_filters_monitoring, "Отслеживание состояния водяных фильтров", "Python/gRPC")
+    Container_Boundary(resources_monitoring_server, "Локальный сервер системы", "Kafka/gRPC", "Сохранение данных мониторинга в локальную базу./nПубликация оповещений оператора./nПредоставление данных по запросу системы мониторинга") {
+        ' foorage_monitoring
+        Component(foorage_monitoring_publisher, "Публикация событий: мониторинг состояния водяных фильтров", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+
+        ' water_filters_monitoring
+        Component(water_filters_monitoring_publisher, "Публикация событий: мониторинг состояния водяных фильтров", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+
+    }
+
+    foorage_monitoring --> foorage_monitoring_publisher : "Сериализованные данные мониторинга"
+    foorage_monitoring_publisher --> kafka : "Сериализованные данные мониторинга"
+
+    water_filters_monitoring --> water_filters_monitoring_publisher : "Сериализованные данные мониторинга"
+    water_filters_monitoring_publisher -->  kafka: "Сериализованные данные мониторинга"
+}
+
+' hardware control
+System_Boundary(equipment_control, "Система управления оборудованием", "Контролирует поилки и кормушки") {
+    Container(feeders_control, "Система контроля кормушек", "ngRPC")
+    Container(water_bowls_control, "Система контроля ресурсов ", "gRPC")
+    Container_Boundary(equipment_control_server, "Локальный сервер системы", "Kafka/gRPC", "Сохранение данных мониторинга в локальную базу./nПубликация оповещений оператора./nПредоставление данных по запросу системы мониторинга") {
+
+        Component(feeders_control_controller, "Контроллер: Система контроля кормушек", "Python/gRPC", "Обработка запроса, вызов сервиса")
+        Component(feeders_control_publisher, "Публикация событий: Система контроля кормушек", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+
+        Component(water_bowls_control_controller, "Контроллер: Система контроля поилок", "Python/gRPC", "Обработка запроса, вызов сервиса")
+        Component(water_bowls_control_publisher, "Публикация событий: Система контроля поилок", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+    }
+
+    equipment_control_connector --> feeders_control_controller : "Команды управления оборудованием"
+    feeders_control_controller --> feeders_control : "Команды управления оборудованием"
+    feeders_control --> feeders_control_publisher : "Сериализованные данные мониторинга"
+    feeders_control_publisher --> kafka : "Сериализованные данные мониторинга"
+
+    equipment_control_connector --> water_bowls_control_controller : "Команды управления оборудованием"
+    water_bowls_control_controller --> water_bowls_control : "Команды управления оборудованием"
+    water_bowls_control --> water_bowls_control_publisher : "Сериализованные данные мониторинга"
+    water_bowls_control_publisher --> kafka : "Сериализованные данные мониторинга"
+}
+
+System_Boundary(animals_behaviour_monitoring, "Система мониторинга поведения животных", "Осуществляет контроль состояния и поведения животных, выполняет подсчёт"){
+    Container(animals_deviant_behaviour_control, "Система отслеживания беспокойного поведения животных", "Python")
+    Container(signs_of_piglets_being_crushed_detection, "Система обнарожения задавливания поросят", "Python")
+    Container(animal_exterior_audit, "Система оценки состояния животных", "Python")
+    Container(count_animals_system, "Система подсчёта поголовья", "Python")
+    Container_Boundary(animals_behaviour_monitoring_server, "Локальный сервер системы", "Kafka/gRPC", "Сохранение данных мониторинга в локальную базу./nПубликация оповещений оператора./nПредоставление данных по запросу системы мониторинга") {
+        Component(animals_deviant_behaviour_control_publisher, "Публикация событий: мониторинг поведения животных", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+        Component(signs_of_piglets_being_crushed_detection_publisher, "Публикация событий: мониторинг задавливания поросят", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+        Component(animal_exterior_audit_publisher, "Публикация событий: мониторинг оценки состояния животных", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+        Component(count_animals_system_publisher, "Публикация событий: система подсчёта поголовья", "Python/Kafka", "Публикация оповещения, сохранение данных в базу")
+
+        animals_deviant_behaviour_control --> animals_deviant_behaviour_control_publisher : "Сериализованные данные мониторинга"
+        animals_deviant_behaviour_control_publisher --> kafka : "Сериализованные данные мониторинга"
+
+        signs_of_piglets_being_crushed_detection --> signs_of_piglets_being_crushed_detection_publisher : "Сериализованные данные мониторинга"
+        signs_of_piglets_being_crushed_detection_publisher -->  kafka: "Сериализованные данные мониторинга"
+
+        animal_exterior_audit --> animal_exterior_audit_publisher : "Сериализованные данные мониторинга"
+        animal_exterior_audit_publisher -->  kafka: "Сериализованные данные мониторинга"
+
+        count_animals_system --> count_animals_system_publisher : "Сериализованные данные мониторинга"
+        count_animals_system_publisher -->  kafka: "Сериализованные данные мониторинга"
+    }
+}
+
+kafka --> resources_monitoring_consumer : "Оповещения о внештатных ситуациях"
+kafka --> equipment_control_consumer : "Оповещения о внештатных ситуациях"
+kafka --> animals_behaviour_monitoring_consumer : "Оповещения о внештатных ситуациях"
+kafka --> analytics_system_kafka_controller : "Данные систем мониторинга и контроля"
+
+auth_middleware <--> user_interface  : "Сериализованные данные (JSON)"
+log_in_controller <--> user_interface  : "Сериализованные данные (JSON)"
+registration_controller <--> user_interface  : "Сериализованные данные (JSON)"
+websockets_ui_connector <--> user_interface  : "Сериализованные данные (JSON)"
+auth_middleware <--> mobile_app : "Сериализованные данные (JSON)"
+log_in_controller <--> mobile_app : "Сериализованные данные (JSON)"
+registration_controller <--> mobile_app : "Сериализованные данные (JSON)"
+websockets_ui_connector <--> mobile_app : "Сериализованные данные (JSON)"
+
+auth_middleware --> external_systems : "Предоставляет данные аналитической системы")
+user_interface --> operator : "Данные системы"
+mobile_app --> operator : "Данные системы"
+@enduml
+

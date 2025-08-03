@@ -1,0 +1,51 @@
+@startuml Animal Monitoring System - Context Diagram
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+skinparam dpi 150
+skinparam maxWidth 100000
+skinparam maxHeight 10000
+
+title Система мониторинга животных - Диаграмма Контекста
+
+top to bottom direction
+
+Person(operator, "Оператор")
+
+
+System(equipment_control, "Система управления оборудованием", "Контролирует поилки и кормушки")
+System(animals_behaviour_monitoring, "Система мониторинга поведения животных", "Осуществляет контроль состояния и поведения животных, выполняет подсчёт")
+System(resources_monitoring, "Система мониторинга реурсов", "Осуществляет контроль запасов фуража и состояния водяных фильтров")
+System(external_systems, "Внешние системы")
+
+System(kafka, "Брокер сообщений", "Apache Kafka")
+
+System(user_interface, "Пользовательский интерфейс", "React")
+System(mobile_app, "Мобильное приложение", "React native")
+
+System_Boundary(central_server, "Центральный сервер"){
+        System(user, "Данные пользователя", "Python/SQLALchemy")
+        System(analytics, "Аналитическая система", "Получает и анализирует метрики от систем мониторинга")
+        System(central_server_main_app, "Центральный сервер")
+
+        central_server_main_app <--> user : "Данные пользователей"
+}
+
+central_server_main_app <-->  equipment_control : "Управление кормушками и поилками", "gRPC"
+
+resources_monitoring -->  kafka :  "Публикует события связанные с опустошением кормушек", "Kafka protocol"
+equipment_control -->  kafka : "Сериализованные данные мониторинга"
+animals_behaviour_monitoring -->  kafka : "Публикует события связанные с поведением животных", "Kafka protocol"
+
+analytics <-->  central_server_main_app : "Получение аналитики/Добавление метрик", "gRPC"
+kafka -->  central_server_main_app : "Поток оповещений о нештатных ситуациях", "Kafka protocol"
+kafka -->  analytics : "Поток событий", "Kafka protocol"
+
+central_server_main_app -->  user_interface : "Cериализованные данные", "RestAPI/JSON"
+central_server_main_app -->  mobile_app : "Cериализованные данные", "RestAPI/JSON"
+central_server_main_app -->  external_systems : "Получение аналитики", "Rest/JSON"
+
+
+user_interface -->  operator : "Данные системы"
+mobile_app -->  operator : "Данные системы"
+
+@enduml
